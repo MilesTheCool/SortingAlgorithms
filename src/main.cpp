@@ -6,6 +6,10 @@
 #include <vector>                           // use vector to store nums
 #include <random>                           // to generate random nums
 #include "shader.hpp"                       // custom shader to draw bars
+#include <algorithm>
+
+#include <chrono>      // benchmark function
+#include <cstdint>     // benchmark function
 
 
 /* OPENGL FUNCTIONS FOR SET-UP AND DRAWING */
@@ -40,16 +44,6 @@ template <class RandomIt>
 void draw_array(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window);
 
 
-/* RUN TIME SET-UP */
-
-/// @brief Generate a vector of random numbers ranging from 1-max_num
-/// @param size the number of nums to generate, ie size of vector being made
-/// @param seed the seed for generating 'random' numbers
-/// @param max_num the biggest number possible to generate
-/// @return vector containing random mixed numbers
-std::vector<int> random_array(size_t size, unsigned int seed, unsigned int max_num); 
-
-
 /* SORTING ALGORITHMS - EACH SHOULD ONLY TAKE FIRST AND LAST ITERATORS TO SORT  (plus opengl shader to draw) */
 /// @brief sort a vector or other data type that can be traversed with iterators
 /// from least to biggest, assuming they are full of numbers
@@ -60,29 +54,70 @@ template <class RandomIt>
 void bubble_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window);
 
 
+/**
+ *  @brief Measures the execution time of a function in nanoseconds.
+ *  @note COPIED DIRECTLY FROM CANVAS, NOT MY WORK
+ *
+ *  @details This function template takes a callable and its arguments, executes
+ *  the callable with the provided arguments, and measures the execution time
+ *  using high-resolution clock. It returns the duration taken for the function
+ *  call to execute in nanoseconds.
+ *
+ *  This can be used to benchmark algorithms, function calls, or any callable
+ *  constructs. The function being benchmarked is called exactly once. The
+ *  precision and accuracy of the benchmark depend on the resolution of the
+ *  clock on the system where the code is run.
+ *
+ *  Example usage:
+ *  @code
+ *  auto result = benchmark([](int x){ return x * x; }, 10);
+ *  std::cout << "Time taken: " << result << " nanoseconds" << std::endl;
+ *  @endcode
+ *
+ *  @tparam Func The type of the callable to be benchmarked.
+ *  @tparam Args The types of the arguments to pass to the callable.
+ *  @param function A reference to the callable to be benchmarked.
+ *  @param args The arguments to pass to the callable.
+ *  @return The execution time of the callable in nanoseconds as an int64_t.
+ */
+
+template <class Func, class... Args>
+int64_t benchmark(const Func& function, Args... args) {
+    using namespace std::chrono;
+
+    const auto start = high_resolution_clock::now();
+    function(args...);
+    const auto stop  = high_resolution_clock::now();
+
+    return duration_cast<nanoseconds>(stop - start).count();
+}
+
+
+
 bool sort = false;
-const int MAX_NUM = 1000;
-const int SIZE = 1000;
+bool shuffle = false;
+bool is_sorted = true;
+const int SIZE = 128;
 
 int main() {
     // setup opengl
-    GLFWwindow* window = setupWindow(1000,1000,"Sorting Algorithms");
+    GLFWwindow* window = setupWindow(500,500,"Sorting Algorithms");
 
     if (window == nullptr) { 
         std::cout << "ERROR. OPENGL FAILURE" << std::endl;
         return -1;
     }
 
+    std::vector<int> vec(SIZE);
     
-    
-    std::random_device rd;
-    const unsigned int SEED = rd();
-
-    std::vector<int> vec = random_array(SIZE, SEED, MAX_NUM);
+    // populate array with every number in order
+    for (int i = 0; i < vec.size(); ++i) {
+        vec[i] = i + 1;
+    }
 
     // set up all vars needed for drawing
 
-    const glm::mat4 perspective = glm::ortho(-1.0f, static_cast<float>(SIZE + 1), -1.0f, static_cast<float>(MAX_NUM + 1));
+    const glm::mat4 perspective = glm::ortho(-1.0f, static_cast<float>(SIZE + 1), -1.0f, static_cast<float>(SIZE + 1));
 
     unsigned int VBO, EBO, VAO;
     setup_buffers(VBO, EBO, VAO);
@@ -94,21 +129,41 @@ int main() {
     shader->use();
     shader->setMat4("perspective", perspective);
 
-    
+    int count = 00;
+    double total_time = 0.0;
 
     // render loop
-    while (!glfwWindowShouldClose(window))
+    while (!glfwWindowShouldClose(window) && count < 10)
     {
         // input
         processInput(window);
 
-        draw_array(vec.begin(), vec.end(), shader, window);       
+        //draw_array(vec.begin(), vec.end(), shader, window);       
+
+        double seconds =  static_cast<double>(benchmark([&] () {
+                draw_array(vec.begin(), vec.end(), shader, window);
+                })) / (1e9);
+
+        std::cout << "Run " << count + 1 << ": " << seconds << std::endl;
+        total_time += seconds;
+
 
         if (sort) {
             bubble_sort(vec.begin(), vec.end(), shader, window);
             sort = false;
-        } 
+            is_sorted = true;
+        }
+        if (shuffle) {
+            std::random_device rng;
+            std::shuffle(vec.begin(), vec.end(), rng);
+            shuffle = false;
+            is_sorted = false;
+        }
+
+        //++count;
     }
+
+    std::cout << "---------------------\nAverage Time: " << total_time / 10.0 << std::endl;
 
     // delete OpenGL buffers 
     glDeleteBuffers(1, &EBO);
@@ -169,9 +224,12 @@ void processInput(GLFWwindow *window)
     {
         glfwSetWindowShouldClose(window, true);
     }
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !is_sorted)
     {
         sort = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS && is_sorted){
+        shuffle = true;
     }
 }
 
@@ -222,7 +280,7 @@ void draw_array(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow*
     int index = 0;
     for (auto i = first; i < last; ++i){
         // height is num/max 
-        float height = static_cast<float>(*i) / static_cast<float>(MAX_NUM);   // change to floats to avoid integer division
+        float height = static_cast<float>(*i) / static_cast<float>(SIZE);   // change to floats to avoid integer division
         shader->setFloat("height", height);
 
         // transformation, move x to i, scale y to nums[i]
@@ -241,23 +299,6 @@ void draw_array(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow*
     glfwPollEvents();
 }
 
-/* SET UP RUN-TIME DETAILS */
-std::vector<int> random_array(size_t size, unsigned int seed, unsigned int max_num) {
-
-    // create a random number generator
-    std::mt19937 gen(seed);
-    std::uniform_int_distribution<> distrib(1, max_num);
-
-    // preallocate vector with max size needed
-    std::vector<int> vec(size);
-
-    // fill vector with nums
-    for (int& value : vec) {
-        value = distrib(gen);
-    }
-
-    return vec;
-}
 
 /* SORTING ALGORITHMS - EACH SHOULD ONLY TAKE FIRST AND LAST ITERATORS TO SORT */
 
@@ -277,12 +318,20 @@ void bubble_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow
             if (*current > *(current + 1)) {
                 std::swap(*current, *(current + 1));
                 swapped = true;
+                // draw after every write
+                //draw_array(first, last, shader, window);
+                double seconds =  static_cast<double>(benchmark([&] () {
+                draw_array(first, last, shader, window);
+                })) / (1e9);
+
+                std::cout << seconds << std::endl;
+                
             }
         }
         
-        // draw after at least 1 number is in final resting place
-        draw_array(first, last, shader, window);
     }
 }
+
+
 
 /* EOF */
