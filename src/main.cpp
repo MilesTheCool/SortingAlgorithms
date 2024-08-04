@@ -7,9 +7,9 @@
 #include <random>                           // to generate random nums
 #include "shader.hpp"                       // custom shader to draw bars
 #include <algorithm>
-
-#include <chrono>      // benchmark function
-#include <cstdint>     // benchmark function
+#include <unistd.h>                         // used to import sleep() function
+#include <chrono>                           // benchmark function
+#include <cstdint>                          // benchmark function
 
 
 /* OPENGL FUNCTIONS FOR SET-UP AND DRAWING */
@@ -43,6 +43,12 @@ void setup_buffers(unsigned int &VBO, unsigned int &EBO, unsigned int &VAO);
 template <class RandomIt>
 void draw_array(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window);
 
+/// @brief change the perspective and vector for a new size - some algorithms take too long on big arrays
+/// @param new_size  - the number of elements to put in the array, will be modifed
+/// @param shader - shader to change the mat4 for perspective
+/// @return the new vector of nums 1 - size
+std::vector<int> change_size(const int new_size, Shader* shader);
+
 
 /* SORTING ALGORITHMS - EACH SHOULD ONLY TAKE FIRST AND LAST ITERATORS TO SORT  (plus opengl shader to draw) */
 /// @brief sort a vector or other data type that can be traversed with iterators
@@ -50,8 +56,29 @@ void draw_array(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow*
 /// at each step, if graphics are enabled, then when a number is overwritten it will be displayed
 /// std::is_sorted() will return true after each one
 
+// traverse list, comparing adjacent items and moving the larger one towards the end
 template <class RandomIt>
 void bubble_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window);
+
+// similar to bubble, but when the end is reached traverse backwards and move the smaller items to the beginning
+template <class RandomIt>
+void shaker_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window);
+
+// search the list and find the smallest element, swap it to the beginning of the unsorted portion, and update the sorted portion to include it
+template <class RandomIt>
+void selection_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window);
+
+// sorted and unsorted portion of the array. 
+// insert the first unsorted num into the sorted portion, shuffling numbers as needed - poor performance on arrays due to insert heavy algorithm
+template <class RandomIt>
+void insertion_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window);
+
+
+// due to recursive implementation, the starting first and last pointers need to be kept track of for drawing. last 4 arguments can be
+// removed from every call for a regular sorting array
+template <typename RandomIt>
+void quicksort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window, RandomIt OG_first, RandomIt OG_last);
+
 
 
 /**
@@ -93,11 +120,7 @@ int64_t benchmark(const Func& function, Args... args) {
 }
 
 
-
-bool sort = false;
-bool shuffle = false;
-bool is_sorted = true;
-const int SIZE = 128;
+int size = 50;
 
 int main() {
     // setup opengl
@@ -108,62 +131,102 @@ int main() {
         return -1;
     }
 
-    std::vector<int> vec(SIZE);
-    
-    // populate array with every number in order
-    for (int i = 0; i < vec.size(); ++i) {
-        vec[i] = i + 1;
-    }
-
-    // set up all vars needed for drawing
-
-    const glm::mat4 perspective = glm::ortho(-1.0f, static_cast<float>(SIZE + 1), -1.0f, static_cast<float>(SIZE + 1));
 
     unsigned int VBO, EBO, VAO;
     setup_buffers(VBO, EBO, VAO);
 
     // create shader
     Shader* shader = new Shader("/home/miles/dev/sorting_algorithms/src/vertex.glsl", "/home/miles/dev/sorting_algorithms/src/fragment.glsl");
-
-    // set uniforms
     shader->use();
-    shader->setMat4("perspective", perspective);
-
-    int count = 00;
-    double total_time = 0.0;
+    
+    std::vector<int> vec = change_size(size, shader);
 
     // render loop
-    while (!glfwWindowShouldClose(window) && count < 10)
+    for (int i = 0; i < 6 && !glfwWindowShouldClose(window); ++i)
     {
         // input
         processInput(window);
+        if (glfwWindowShouldClose(window)) {break;}
 
-        //draw_array(vec.begin(), vec.end(), shader, window);       
+        int target_size;    // change the size of vec over time to display change to user
+        double seconds;     // time for benchmarking functions
 
-        double seconds =  static_cast<double>(benchmark([&] () {
+        switch (i) {
+            case 0:   // display start countdown
+                std::cout << "staring in x" << std::flush;
+
+                for (int j = 3; j > 0; --j){
+                    std::cout << "\b" << j << std::flush;
+                    processInput(window);
+                    if (glfwWindowShouldClose(window)) {std::cout << "\nending now " << std::flush; break;}
+                    draw_array(vec.begin(), vec.end(), shader, window);
+                    sleep(1);
+                }
+
+                std::cout << "\b\b\b\bnow " << std::endl;
                 draw_array(vec.begin(), vec.end(), shader, window);
-                })) / (1e9);
+                break;
 
-        std::cout << "Run " << count + 1 << ": " << seconds << std::endl;
-        total_time += seconds;
+            case 1:    // bubble sort 
+                std::cout << "\n\nperforming bubble sort on " << size << " elements..." << std::endl;
+                draw_array(vec.begin(), vec.end(), shader, window);
+                sleep(1);
+                std::shuffle(vec.begin(), vec.end(), std::random_device{});
+                sleep(1);
+                seconds = static_cast<double>(benchmark([&](){bubble_sort(vec.begin(), vec.end(), shader, window);})) / (1e9);
+                std::cout << "finished bubble sort in " << seconds << " seconds or " <<  seconds / 60.0 << " minutes" << std::endl;
+                sleep(1);
+                break;
+            
+            case 2:    // shaker sort 
+                std::cout << "\n\nperforming shaker sort on " << size << " elements..." << std::endl;
+                draw_array(vec.begin(), vec.end(), shader, window);
+                sleep(1);
+                std::shuffle(vec.begin(), vec.end(), std::random_device{});
+                sleep(1);
+                seconds = static_cast<double>(benchmark([&](){shaker_sort(vec.begin(), vec.end(), shader, window);})) / (1e9);
+                std::cout << "finished shaker sort in " << seconds << " seconds or " <<  seconds / 60.0 << " minutes" << std::endl;
+                sleep(1);
+                break;
+
+            case 3:  // selection sort
+                std::cout << "\n\nperforming selection sort on " << size << " elements..." << std::endl;
+                draw_array(vec.begin(), vec.end(), shader, window);
+                sleep(1);
+                std::shuffle(vec.begin(), vec.end(), std::random_device{});
+                sleep(1);
+                seconds = static_cast<double>(benchmark([&](){selection_sort(vec.begin(), vec.end(), shader, window);})) / (1e9);
+                std::cout << "finished selection sort in " << seconds << " seconds or " <<  seconds / 60.0 << " minutes" << std::endl;
+                sleep(1);
+                break;
+            
+            case 4:  // insertion sort
+                std::cout << "\n\nperforming insertion sort on " << size << " elements..." << std::endl;
+                draw_array(vec.begin(), vec.end(), shader, window);
+                sleep(1);
+                std::shuffle(vec.begin(), vec.end(), std::random_device{});
+                sleep(1);
+                seconds = static_cast<double>(benchmark([&](){insertion_sort(vec.begin(), vec.end(), shader, window);})) / (1e9);
+                std::cout << "finished insertion sort in " << seconds << " seconds or " <<  seconds / 60.0 << " minutes" << std::endl;
+                sleep(1);
+                break;
+            
+            case 5:  // quicksort
+                std::cout << "\n\nperforming quicksort sort on " << size << " elements..." << std::endl;
+                draw_array(vec.begin(), vec.end(), shader, window);
+                sleep(1);
+                std::shuffle(vec.begin(), vec.end(), std::random_device{});
+                sleep(1);
+                seconds = static_cast<double>(benchmark([&](){quicksort(vec.begin(), vec.end(), shader, window, vec.begin(), vec.end());})) / (1e9);
+                std::cout << "finished insertion sort in " << seconds << " seconds or " <<  seconds / 60.0 << " minutes" << std::endl;
+                sleep(1);
+                break;
 
 
-        if (sort) {
-            bubble_sort(vec.begin(), vec.end(), shader, window);
-            sort = false;
-            is_sorted = true;
+            default:
+               std::cout << "something went wrong here i " << i << std::endl;
         }
-        if (shuffle) {
-            std::random_device rng;
-            std::shuffle(vec.begin(), vec.end(), rng);
-            shuffle = false;
-            is_sorted = false;
-        }
-
-        //++count;
     }
-
-    std::cout << "---------------------\nAverage Time: " << total_time / 10.0 << std::endl;
 
     // delete OpenGL buffers 
     glDeleteBuffers(1, &EBO);
@@ -224,13 +287,6 @@ void processInput(GLFWwindow *window)
     {
         glfwSetWindowShouldClose(window, true);
     }
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !is_sorted)
-    {
-        sort = true;
-    }
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS && is_sorted){
-        shuffle = true;
-    }
 }
 
 void setup_buffers(unsigned int &VBO, unsigned int &EBO, unsigned int &VAO) {
@@ -280,8 +336,8 @@ void draw_array(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow*
     int index = 0;
     for (auto i = first; i < last; ++i){
         // height is num/max 
-        float height = static_cast<float>(*i) / static_cast<float>(SIZE);   // change to floats to avoid integer division
-        shader->setFloat("height", height);
+        float height = static_cast<float>(*i) / static_cast<float>(size);   // change to floats to avoid integer division
+        glad_glUniform3f(glGetUniformLocation(shader->get_ID(), "color"), height, 0.0f, 1.0f - height);
 
         // transformation, move x to i, scale y to nums[i]
         glm::mat4 trans{1.0f};
@@ -299,8 +355,22 @@ void draw_array(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow*
     glfwPollEvents();
 }
 
+std::vector<int> change_size(const int new_size, Shader* shader) {
+    size = new_size;
 
-/* SORTING ALGORITHMS - EACH SHOULD ONLY TAKE FIRST AND LAST ITERATORS TO SORT */
+    std::vector<int> vec(size);
+    
+    // populate array with every number in order
+    for (int i = 0; i < vec.size(); ++i) {
+        vec[i] = i + 1;
+    }
+
+    shader->setMat4("perspective", glm::ortho(-1.0f, static_cast<float>(size + 1), -1.0f, static_cast<float>(size + 1)));
+
+    return vec;
+}
+
+/* SORTING ALGORITHMS */
 
 template <class RandomIt>
 void bubble_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window) {
@@ -319,17 +389,140 @@ void bubble_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow
                 std::swap(*current, *(current + 1));
                 swapped = true;
                 // draw after every write
-                //draw_array(first, last, shader, window);
-                double seconds =  static_cast<double>(benchmark([&] () {
-                draw_array(first, last, shader, window);
-                })) / (1e9);
-
-                std::cout << seconds << std::endl;
-                
+                draw_array(first, last, shader, window);              
             }
         }
         
     }
+}
+
+
+template <class RandomIt>
+void shaker_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window) {
+
+    auto left_border = first;
+    auto right_border = last;
+
+    while (left_border < right_border) {
+        // move left to right, pushing big items, biggest item is in place
+        for (auto current = left_border; current < right_border - 1; ++current){
+            if (*current > *(current + 1)){
+                std::swap(*current, *(current + 1));
+                draw_array(first, last, shader, window);
+            }
+        }
+        --right_border;
+
+        // move right to left, pushing small items, smallest item is in place
+        for (auto current = right_border - 1; current > left_border; --current){
+            if (*current < *(current - 1)){
+                std::swap(*current, *(current - 1));
+                draw_array(first, last, shader, window);
+            }
+        }
+        ++left_border;
+    }
+
+}
+
+template <class RandomIt>
+void selection_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window)
+{
+    // first last represent bounds of unsorted array
+    // first is the element being swapped with smallest value
+    auto first_unsorted = first;
+    while (first_unsorted < last)
+    {
+        // find the smallest item, by default is first element (as iterator)
+        auto smallest = first_unsorted;
+
+        for (auto current = first_unsorted + 1; current != last; ++current)
+        {
+            // if item is smaller, it is new smallest
+            if (*current < *smallest)
+            {
+                smallest = current;
+                draw_array(first, last, shader, window);
+            }
+        }
+
+        // swap the values of first and smallest
+        if (smallest != first_unsorted)
+        {
+            std::swap(*smallest, *first_unsorted);
+            draw_array(first, last, shader, window);
+        }
+
+        ++first_unsorted;  // move to next unsorted element
+    }
+}
+
+template <class RandomIt>
+void insertion_sort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window)
+{
+    // iterate through unsorted array, starting from second element
+    for (auto index = first + 1; index < last; ++index)
+    {
+        // store value of what is being inserted
+        const auto current_val = *index;
+
+        // store location of where to insert in sorted portion
+        auto inserted_pos = index;
+
+        // while not accessing first position and the next
+        // value is lessthan current value
+        while (inserted_pos > first && *(inserted_pos - 1) > current_val)
+        {
+            // shuffle larger value right one
+            *inserted_pos = *(inserted_pos - 1);
+            --inserted_pos;
+            draw_array(first, last, shader, window);
+        }
+
+        // hole is made for value, now insert into place
+        *inserted_pos = current_val;
+        draw_array(first, last, shader, window);
+    }
+}
+
+
+template <typename RandomIt>
+void quicksort(RandomIt first, RandomIt last, const Shader* shader, GLFWwindow* window, RandomIt OG_first, RandomIt OG_last) {
+
+    // base case. Return if only 1 element
+    if (first >= last) {return;}
+
+    // set pivot as last element
+    // finding pivot in better way may improve performance
+    const auto pivot_value = *(last - 1);
+
+    // move all values larger than pivot to right of pivot
+    // all values less than pivot to left of pivot
+
+    // helps shuffle all values less than pivot to its left
+    // also identifies final position of pivot
+    RandomIt pivot_pos = first;
+
+    for (RandomIt j = first; j != last - 1; ++j)
+    {
+        // if value in array is less than pivot value,
+        // start stacking on left side of array
+        if (*j < pivot_value)
+        {
+            std::swap(*pivot_pos, *j);
+            ++pivot_pos;
+            draw_array(OG_first, OG_last, shader, window);
+        }
+    }
+
+    // swap first value larger than pivot with pivot
+    std::swap(*pivot_pos, *(last - 1));
+    draw_array(OG_first, OG_last, shader, window);
+
+    // recursively do quicksort before and after pivot
+    // do not include pivot itself, it is in final place
+    quicksort(first, pivot_pos, shader, window, OG_first, OG_last);
+    quicksort(pivot_pos + 1, last, shader, window, OG_first, OG_last);
 }
 
 
