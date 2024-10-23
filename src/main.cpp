@@ -1,4 +1,4 @@
-#include <glad/glad.h>                      // load in OpenGL functions
+#include "glad.h"                      // load in OpenGL functions
 #include <GLFW/glfw3.h>                     // OpenGL functions
 #include <iostream>                         // push stuff to terminal
 #include <glm/glm.hpp>                      // mat4s and vecs
